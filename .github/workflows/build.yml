@@ -24,7 +24,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-            - name: Download latest Stockfish
+      - name: Download latest Stockfish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
