@@ -1,0 +1,55 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Download latest Stockfish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force engine, sf | Out-Null
+          gh release download --repo official-stockfish/Stockfish --pattern "stockfish-windows-x86-64-avx2.zip" --dir sf --clobber
+          Expand-Archive -Path (Get-ChildItem sf/*.zip).FullName -DestinationPath sf/x -Force
+          $exe = Get-ChildItem sf/x -Recurse -Filter "stockfish*.exe" | Select-Object -First 1
+          Copy-Item $exe.FullName engine/stockfish.exe
+          Get-Item engine/stockfish.exe
+
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --onefile --windowed
+          --name ChessScreenAssistant
+          --add-binary "engine/stockfish.exe;engine"
+          app.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChessScreenAssistant-windows
+          path: dist/ChessScreenAssistant.exe
+
+      - name: Attach to release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ChessScreenAssistant.exe
