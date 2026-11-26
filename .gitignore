@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+build-onefile/
+dist/
+dist-onefile/
+engine/
+sf/
+*.spec
+*.zip
+ChessScreenAssistant-portable.exe

@@ -10,7 +10,6 @@ colours, last-move highlights and different themes do not matter.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import cv2

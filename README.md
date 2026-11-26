@@ -1,27 +1,39 @@
 # Chess Screen Assistant
 
-Reads a chessboard on your screen, runs Stockfish, and draws the best move as an arrow over the board.
+Reads a chessboard from your screen (any theme, it learns the pieces from the start position) and
+shows Stockfish's best move(s) as arrows on top of the board. Windows only.
 
-## Get the .exe
-1. Create a GitHub repo and push this folder (keep `.github/workflows/build.yml`).
-2. Open the **Actions** tab -> *Build Windows EXE* -> wait ~3 min.
-3. Download `ChessScreenAssistant-windows` from the run's **Artifacts** (or tag a release: `git tag v1.0 && git push --tags` and it appears under Releases).
-
-Stockfish is downloaded and bundled automatically, so the .exe is self-contained.
-(Windows SmartScreen may warn because the exe is unsigned: More info -> Run anyway.)
+**Fair play:** use it for analysis, puzzles, practice against bots and reviewing games - not in rated
+or online games where engine assistance is forbidden.
 
 ## Use
-1. Put a board on screen showing the **starting position** (analysis board, new game, etc.).
-2. **Select board area** - drag over just the 64 squares (no coordinates/borders).
-3. Tick **I play Black** if the board is flipped, then **Calibrate**. This learns the piece style from the screen, so any theme works. Done once per theme/board size.
-4. **Start**. The best move appears in the window and as a green arrow over the board.
+1. Download `ChessScreenAssistant-windows.zip` from the Releases page (or the Actions artifact), unzip, run the exe.
+   (`ChessScreenAssistant-portable.exe` is a single file, but starts slower and is flagged by antivirus more often.)
+2. **Select board area** - drag over exactly the 64 squares.
+3. **Calibrate** with the starting position on screen (tick *I play Black* if the board is flipped).
+4. **Start** (or press **F8** anywhere).
 
-Needs Windows 10 2004+ so the arrow overlay is excluded from screen capture.
+Extras: top 1-3 moves as coloured arrows, eval bar, *Copy FEN* for any analysis board, adjustable strength/think time.
 
-## Run from source
-    pip install -r requirements.txt
-    python app.py     # put stockfish.exe in ./engine/ or use "Choose Stockfish .exe"
+## Troubleshooting
+Click **Open log folder**. `app.log` has the details, `crash.log` captures hard crashes, `selftest.txt` the engine check.
+You can run `ChessScreenAssistant.exe --selftest` to test every bundled engine.
 
-## Fair play
-Intended for analysis, studying, and playing bots/offline. Using an engine in rated games
-against humans breaks the rules of Lichess, Chess.com and others and gets accounts banned.
+| Symptom | Cause / fix |
+|---|---|
+| "Worker crashed" / worker stops | See `app.log`. The engine is now restarted automatically and a slower, compatible Stockfish build is used as fallback if the AVX2 one cannot run on your CPU. |
+| Engine disappears right after start | Antivirus removed the extracted engine. Use the zip (folder) version, or add `%USERPROFILE%\.chess_screen_assistant` to exclusions. |
+| "Can't read the board" | Board area not exact, board partly covered, or wrong *I play Black* setting - reselect and recalibrate. |
+
+## Develop
+```
+pip install -r requirements-dev.txt
+python -m pytest
+python app.py
+```
+CI (`.github/workflows/build.yml`): tests -> download Stockfish (AVX2 + compatible) -> benchmark both ->
+build folder + portable exe -> run `--selftest` on the *built* exes -> publish (tags `v*` create a release).
+
+## Licence note
+The release bundles Stockfish (GPLv3, https://github.com/official-stockfish/Stockfish); its license text is
+included as `engine/STOCKFISH-COPYING.txt`.
