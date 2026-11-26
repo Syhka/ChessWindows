@@ -24,15 +24,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
-      - name: Download latest Stockfish
+            - name: Download latest Stockfish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force engine, sf | Out-Null
-          gh release download --repo official-stockfish/Stockfish --pattern "stockfish-windows-x86-64-avx2.zip" --dir sf --clobber
-          Expand-Archive -Path (Get-ChildItem sf/*.zip).FullName -DestinationPath sf/x -Force
+          $assets = gh release view --repo official-stockfish/Stockfish --json assets --jq '.assets[].name'
+          Write-Host "Available assets:"
+          $assets
+          $name = $assets | Where-Object { $_ -match 'windows.*x86-64-avx2' } | Select-Object -First 1
+          if (-not $name) { $name = $assets | Where-Object { $_ -match 'windows.*x86-64' } | Select-Object -First 1 }
+          if (-not $name) { throw "No Windows build found in the latest Stockfish release" }
+          Write-Host "Using: $name"
+          gh release download --repo official-stockfish/Stockfish --pattern $name --dir sf --clobber
+          $file = Get-ChildItem sf -File | Select-Object -First 1
+          New-Item -ItemType Directory -Force sf/x | Out-Null
+          if ($file.Extension -eq '.zip') { Expand-Archive -Path $file.FullName -DestinationPath sf/x -Force } else { tar -xf $file.FullName -C sf/x }
           $exe = Get-ChildItem sf/x -Recurse -Filter "stockfish*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "stockfish exe not found after extracting" }
           Copy-Item $exe.FullName engine/stockfish.exe
           Get-Item engine/stockfish.exe
 
