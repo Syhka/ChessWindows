@@ -337,11 +337,17 @@ class App:
             return json.loads(CFG_FILE.read_text())
         except Exception:
             return {}
+            
+    def _engine_to_save(self):
+        p = self.engine_path
+        if p and not str(p).startswith(getattr(sys, "_MEIPASS", "\0")):
+            return p
+        return None
 
     def _save_cfg(self) -> None:
         APP_DIR.mkdir(parents=True, exist_ok=True)
         data = {"region": self.region, "flipped": self.settings["flipped"], "time": self.settings["time"],
-                "skill": self.settings["skill"], "engine": self.engine_path}
+                                "skill": self.settings["skill"], "engine": self._engine_to_save()}
         CFG_FILE.write_text(json.dumps(data))
 
     # ---- UI
