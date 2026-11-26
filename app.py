@@ -316,7 +316,8 @@ class App:
                 self.recognizer.load(TPL_FILE)
             except Exception:
                 pass
-        self.engine_path = self.cfg.get("engine") or find_stockfish()
+               saved_engine = self.cfg.get("engine")
+        self.engine_path = saved_engine if saved_engine and os.path.exists(saved_engine) else find_stockfish()
         self.region = self.cfg.get("region")
         self.settings = {
             "flipped": bool(self.cfg.get("flipped", False)),
