@@ -316,7 +316,7 @@ class App:
                 self.recognizer.load(TPL_FILE)
             except Exception:
                 pass
-               saved_engine = self.cfg.get("engine")
+        saved_engine = self.cfg.get("engine")
         self.engine_path = saved_engine if saved_engine and os.path.exists(saved_engine) else find_stockfish()
         self.region = self.cfg.get("region")
         self.settings = {
