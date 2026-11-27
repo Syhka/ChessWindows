@@ -124,8 +124,11 @@ def open_engine(candidates: list[str], skip: set[str] | None = None
         try:
             exe = _launchable(path)
             engine = chess.engine.SimpleEngine.popen_uci(exe, timeout=20, stderr=subprocess.DEVNULL, **kwargs)
-            _setopt(engine, "Threads", max(1, min(4, (os.cpu_count() or 2) - 1)))
-            _setopt(engine, "Hash", 128)
+            # Conservative settings: a few threads and a small hash table are plenty for 0.3-5 s
+            # searches and avoid out-of-memory / thread-creation failures on busy or low-RAM PCs.
+            _setopt(engine, "Threads", max(1, min(2, (os.cpu_count() or 2) // 2)))
+            _setopt(engine, "Hash", 64)
+            _setopt(engine, "Ponder", False)
             # Exercise the evaluation code: an unsupported-CPU build typically only crashes here.
             engine.analyse(chess.Board(), chess.engine.Limit(depth=4))
             log.info("Engine OK: %s (%s)", Path(path).name, engine.id.get("name", "?"))
@@ -141,6 +144,17 @@ def open_engine(candidates: list[str], skip: set[str] | None = None
 
 def set_skill(engine: chess.engine.SimpleEngine, skill: int) -> None:
     _setopt(engine, "Skill Level", int(skill))
+
+
+def kill_engine(engine: chess.engine.SimpleEngine) -> None:
+    """Hard-kill a hung engine process so a blocked analyse() call raises instead of freezing forever."""
+    try:
+        engine.protocol.transport.kill()
+    except Exception:  # noqa: BLE001
+        try:
+            engine.protocol.transport.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ---------------------------------------------------------------------------- self-test

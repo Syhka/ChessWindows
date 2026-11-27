@@ -27,6 +27,21 @@ TPL_FILE = APP_DIR / "templates.npz"
 HOTKEY_VK = 0x77  # F8 = start / stop (works even when another window has focus)
 ARROW_COLORS = ["#22c55e", "#eab308", "#f97316"]  # best, 2nd, 3rd
 
+# modern dark palette
+BG, CARD, CARD2 = "#12151c", "#1b2030", "#232a3d"
+FG, MUTED, ACCENT, ACCENT_HOT, WARN = "#e6e9f0", "#8b94a7", "#22c55e", "#16a34a", "#f59e0b"
+FONT = "Segoe UI"
+
+
+def resource_path(name: str) -> str:
+    """Find a bundled asset both when running from source and from a PyInstaller exe."""
+    for base in (getattr(sys, "_MEIPASS", None), os.path.dirname(os.path.abspath(__file__))):
+        if base:
+            p = os.path.join(base, "assets", name)
+            if os.path.exists(p):
+                return p
+    return ""
+
 
 def enable_dpi_awareness() -> None:
     try:
@@ -65,9 +80,16 @@ class Overlay:
         self.win.update_idletasks()
         try:
             user32 = ctypes.windll.user32
-            hwnd = user32.GetParent(self.win.winfo_id())
-            style = user32.GetWindowLongW(hwnd, -20)
-            user32.SetWindowLongW(hwnd, -20, style | 0x80000 | 0x20 | 0x80)  # layered, click-through, toolwindow
+            user32.GetParent.restype = ctypes.c_void_p
+            user32.GetParent.argtypes = [ctypes.c_void_p]
+            hwnd = user32.GetParent(self.win.winfo_id()) or self.win.winfo_id()
+            get = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+            setp = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+            get.restype, get.argtypes = ctypes.c_ssize_t, [ctypes.c_void_p, ctypes.c_int]
+            setp.restype, setp.argtypes = ctypes.c_ssize_t, [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
+            style = get(hwnd, -20)
+            setp(hwnd, -20, style | 0x80000 | 0x20 | 0x80)  # layered, click-through, toolwindow
+            user32.SetWindowDisplayAffinity.argtypes = [ctypes.c_void_p, ctypes.c_uint]
             user32.SetWindowDisplayAffinity(hwnd, 0x11)  # WDA_EXCLUDEFROMCAPTURE
         except Exception:  # noqa: BLE001
             log.warning("Could not set overlay window styles (older Windows?)")
@@ -163,6 +185,19 @@ class App:
         self.root.title("Chess Screen Assistant")
         self.root.attributes("-topmost", True)
         self.root.resizable(False, False)
+        self.root.configure(bg=BG)
+        self._icon_img = None
+        try:
+            ico = resource_path("icon.ico")
+            if ico:
+                self.root.iconbitmap(ico)
+            png = resource_path("icon.png")
+            if png:
+                self._icon_img = tk.PhotoImage(file=png)
+                self.root.iconphoto(True, self._icon_img)
+        except Exception:  # noqa: BLE001
+            log.warning("Could not load the window icon")
+        self._style()
 
         self.q: "queue.Queue" = queue.Queue()
         self.cfg = self._load_cfg()
@@ -206,10 +241,45 @@ class App:
             log.exception("Could not save config")
 
     # ---- UI
+    def _style(self) -> None:
+        st = ttk.Style(self.root)
+        try:
+            st.theme_use("clam")
+        except tk.TclError:
+            pass
+        st.configure(".", background=BG, foreground=FG, font=(FONT, 10), borderwidth=0, focuscolor=BG)
+        st.configure("TFrame", background=BG)
+        st.configure("Card.TFrame", background=CARD)
+        st.configure("TLabel", background=BG, foreground=FG)
+        st.configure("Card.TLabel", background=CARD, foreground=FG)
+        st.configure("Muted.TLabel", background=CARD, foreground=MUTED, font=(FONT, 9))
+        st.configure("TCheckbutton", background=BG, foreground=FG, font=(FONT, 10))
+        st.map("TCheckbutton", background=[("active", BG)], foreground=[("active", FG)])
+        st.configure("Accent.TButton", background=ACCENT, foreground="#06240f", font=(FONT, 11, "bold"),
+                     padding=(12, 9), borderwidth=0)
+        st.map("Accent.TButton", background=[("active", ACCENT_HOT), ("pressed", ACCENT_HOT)])
+        st.configure("Step.TButton", background=CARD2, foreground=FG, font=(FONT, 10), padding=(12, 8))
+        st.map("Step.TButton", background=[("active", "#2d3650"), ("pressed", "#2d3650")])
+        st.configure("Ghost.TButton", background=BG, foreground=MUTED, font=(FONT, 9), padding=(8, 5))
+        st.map("Ghost.TButton", foreground=[("active", FG)], background=[("active", CARD)])
+        st.configure("TCombobox", fieldbackground=CARD2, background=CARD2, foreground=FG,
+                     arrowcolor=FG, selectbackground=CARD2, selectforeground=FG, padding=4)
+        st.map("TCombobox", fieldbackground=[("readonly", CARD2)], foreground=[("readonly", FG)],
+               selectbackground=[("readonly", CARD2)], selectforeground=[("readonly", FG)])
+        st.configure("Horizontal.TScale", background=BG, troughcolor=CARD2)
+        self.root.option_add("*TCombobox*Listbox.background", CARD2)
+        self.root.option_add("*TCombobox*Listbox.foreground", FG)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+
+    def _card(self, parent) -> ttk.Frame:
+        outer = ttk.Frame(parent, style="Card.TFrame", padding=(14, 10))
+        outer.pack(fill="x", pady=(0, 10))
+        return outer
+
     def _build_ui(self) -> None:
-        pad = {"padx": 10, "pady": 4}
-        f = ttk.Frame(self.root, padding=8)
-        f.pack()
+        W = 360
+        f = ttk.Frame(self.root, padding=14)
+        f.pack(fill="both")
 
         self.best_var = tk.StringVar(value="-")
         self.eval_var = tk.StringVar(value="")
@@ -220,58 +290,101 @@ class App:
         self.bar_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value=self._initial_status())
 
-        ttk.Label(f, textvariable=self.best_var, font=("Segoe UI", 28, "bold")).pack(**pad)
-        ttk.Label(f, textvariable=self.eval_var, font=("Segoe UI", 12)).pack()
-        self.bar = ttk.Progressbar(f, length=340, maximum=100, value=50)
-        self.bar.pack(padx=10, pady=(6, 0))
-        ttk.Label(f, textvariable=self.bar_var, foreground="#555", font=("Segoe UI", 8)).pack()
-        ttk.Label(f, textvariable=self.line_var, wraplength=360, foreground="#555").pack(**pad)
-        ttk.Label(f, textvariable=self.alt_var, wraplength=360, foreground="#a60").pack()
-        ttk.Label(f, textvariable=self.status_var, wraplength=360, foreground="#0a6").pack(**pad)
-        ttk.Separator(f).pack(fill="x", pady=6)
+        # header
+        head = ttk.Frame(f)
+        head.pack(fill="x", pady=(0, 10))
+        if self._icon_img is not None:
+            small = self._icon_img.subsample(6, 6)  # 256 -> ~43 px
+            self._icon_small = small
+            ttk.Label(head, image=small).pack(side="left", padx=(0, 10))
+        titles = ttk.Frame(head)
+        titles.pack(side="left")
+        ttk.Label(titles, text="Chess Screen Assistant", font=(FONT, 14, "bold")).pack(anchor="w")
+        ttk.Label(titles, text="Stockfish on your screen", foreground=MUTED, font=(FONT, 9)).pack(anchor="w")
 
-        ttk.Button(f, text="1. Select board area", command=self.select_region).pack(fill="x", **pad)
-        ttk.Button(f, text="2. Calibrate (start position visible)", command=self.calibrate).pack(fill="x", **pad)
-        self.start_btn = ttk.Button(f, text="3. Start  (F8)", command=self.toggle)
-        self.start_btn.pack(fill="x", **pad)
+        # best move card
+        card = self._card(f)
+        ttk.Label(card, textvariable=self.best_var, style="Card.TLabel", font=(FONT, 26, "bold"),
+                  foreground=ACCENT).pack(anchor="w")
+        ttk.Label(card, textvariable=self.eval_var, style="Card.TLabel", font=(FONT, 10)).pack(anchor="w")
+        self.bar = tk.Canvas(card, width=W - 28, height=12, bg=CARD2, highlightthickness=0)
+        self.bar.pack(fill="x", pady=(8, 2))
+        ttk.Label(card, textvariable=self.bar_var, style="Muted.TLabel").pack(anchor="w")
+        ttk.Label(card, textvariable=self.line_var, style="Muted.TLabel", wraplength=W - 28).pack(anchor="w", pady=(6, 0))
+        ttk.Label(card, textvariable=self.alt_var, style="Card.TLabel", foreground=WARN, font=(FONT, 9),
+                  wraplength=W - 28).pack(anchor="w")
+        self._set_bar(None)
 
+        # status
+        self.status_lbl = ttk.Label(f, textvariable=self.status_var, wraplength=W, foreground=ACCENT,
+                                    font=(FONT, 9))
+        self.status_lbl.pack(anchor="w", pady=(0, 10))
+
+        # steps
+        ttk.Button(f, text="1   Select board area", style="Step.TButton", command=self.select_region).pack(fill="x", pady=2)
+        ttk.Button(f, text="2   Calibrate  (start position visible)", style="Step.TButton",
+                   command=self.calibrate).pack(fill="x", pady=2)
+        self.start_btn = ttk.Button(f, text="3   Start   (F8)", style="Accent.TButton", command=self.toggle)
+        self.start_btn.pack(fill="x", pady=(8, 10))
+
+        # options
         self.black_var = tk.BooleanVar(value=self.settings["flipped"])
         ttk.Checkbutton(f, text="I play Black (board is flipped)", variable=self.black_var,
-                        command=self._opts_changed).pack(anchor="w", **pad)
+                        command=self._opts_changed).pack(anchor="w", pady=2)
         self.both_var = tk.BooleanVar(value=self.settings["both"])
         ttk.Checkbutton(f, text="Also suggest moves for the opponent's turn", variable=self.both_var,
-                        command=self._opts_changed).pack(anchor="w", **pad)
+                        command=self._opts_changed).pack(anchor="w", pady=2)
 
         row = ttk.Frame(f)
-        row.pack(fill="x", **pad)
-        ttk.Label(row, text="Think time (s):").pack(side="left")
+        row.pack(fill="x", pady=(8, 2))
+        ttk.Label(row, text="Think time (s)").pack(side="left")
         self.time_var = tk.StringVar(value=str(self.settings["time"]))
         cb = ttk.Combobox(row, textvariable=self.time_var, values=["0.3", "0.6", "1", "2", "5"], width=5)
-        cb.pack(side="left", padx=6)
+        cb.pack(side="left", padx=(6, 14))
         cb.bind("<<ComboboxSelected>>", lambda _e: self._opts_changed())
         cb.bind("<FocusOut>", lambda _e: self._opts_changed())
-        ttk.Label(row, text="Top moves:").pack(side="left", padx=(12, 0))
+        ttk.Label(row, text="Top moves").pack(side="left")
         self.lines_var = tk.StringVar(value=str(self.settings["lines"]))
         lb = ttk.Combobox(row, textvariable=self.lines_var, values=["1", "2", "3"], width=3, state="readonly")
         lb.pack(side="left", padx=6)
         lb.bind("<<ComboboxSelected>>", lambda _e: self._opts_changed())
 
         row2 = ttk.Frame(f)
-        row2.pack(fill="x", **pad)
-        ttk.Label(row2, text="Strength (0-20):").pack(side="left")
-        self.skill = tk.Scale(row2, from_=0, to=20, orient="horizontal", length=170,
-                              command=lambda v: self.settings.__setitem__("skill", int(float(v))))
+        row2.pack(fill="x", pady=(6, 2))
+        ttk.Label(row2, text="Strength").pack(side="left")
+        self.skill_val = tk.StringVar(value=str(self.settings["skill"]))
+        self.skill = ttk.Scale(row2, from_=0, to=20, orient="horizontal", length=190,
+                               command=self._skill_moved)
         self.skill.set(self.settings["skill"])
         self.skill.bind("<ButtonRelease-1>", lambda _e: self._opts_changed())
-        self.skill.pack(side="left", padx=6)
+        self.skill.pack(side="left", padx=8)
+        ttk.Label(row2, textvariable=self.skill_val, width=3).pack(side="left")
 
+        # footer
         row3 = ttk.Frame(f)
-        row3.pack(fill="x", **pad)
-        ttk.Button(row3, text="Copy FEN", command=self.copy_fen).pack(side="left", expand=True, fill="x", padx=(0, 3))
-        ttk.Button(row3, text="Open log folder", command=self.open_logs).pack(side="left", expand=True, fill="x", padx=(3, 0))
-        ttk.Label(f, textvariable=self.fen_var, wraplength=360, foreground="#888", font=("Consolas", 8)).pack()
-        ttk.Button(f, text="Choose Stockfish .exe...", command=self.choose_engine).pack(fill="x", **pad)
-        ttk.Label(f, textvariable=self.engine_var, foreground="#888", font=("Segoe UI", 8)).pack()
+        row3.pack(fill="x", pady=(12, 0))
+        ttk.Button(row3, text="Copy FEN", style="Ghost.TButton", command=self.copy_fen).pack(side="left")
+        ttk.Button(row3, text="Choose engine...", style="Ghost.TButton", command=self.choose_engine).pack(side="left")
+        ttk.Button(row3, text="Logs", style="Ghost.TButton", command=self.open_logs).pack(side="left")
+        ttk.Label(f, textvariable=self.fen_var, wraplength=W, foreground="#5b6478", font=("Consolas", 8)).pack(anchor="w")
+        ttk.Label(f, textvariable=self.engine_var, foreground="#5b6478", font=(FONT, 8)).pack(anchor="w")
+
+    def _skill_moved(self, v: str) -> None:
+        val = int(round(float(v)))
+        self.settings["skill"] = val
+        self.skill_val.set(str(val))
+
+    def _set_bar(self, white_pct: float | None) -> None:
+        """Eval bar: white share on the left, dark share on the right."""
+        c = self.bar
+        c.update_idletasks()
+        w, h = max(c.winfo_width(), 100), 12
+        c.delete("all")
+        pct = 50.0 if white_pct is None else max(0.0, min(100.0, white_pct))
+        x = w * pct / 100.0
+        c.create_rectangle(0, 0, x, h, fill="#f1f5f9", width=0)
+        c.create_rectangle(x, 0, w, h, fill="#0b0e14", width=0)
+        c.create_line(w / 2, 0, w / 2, h, fill="#64748b")
 
     def _initial_status(self) -> str:
         if not candidate_engines(self.user_engine):
@@ -362,7 +475,7 @@ class App:
         self.overlay.place(self.region)
         self.worker = Worker(self.user_engine, self.region, self.recognizer, self.settings, self.q)
         self.worker.start()
-        self.start_btn.config(text="Stop  (F8)")
+        self.start_btn.config(text="Stop   (F8)")
         self.status_var.set("Starting engine...")
 
     def stop(self, wait: bool = False) -> None:
@@ -372,7 +485,7 @@ class App:
             if wait:
                 w.join(timeout=3)
         self.overlay.hide()
-        self.start_btn.config(text="3. Start  (F8)")
+        self.start_btn.config(text="3   Start   (F8)")
         self.status_var.set("Stopped.")
 
     # ---- UI updates from worker
@@ -381,7 +494,7 @@ class App:
         self.eval_var.set("")
         self.line_var.set("")
         self.alt_var.set("")
-        self.bar.config(value=50)
+        self._set_bar(None)
         self.bar_var.set("")
 
     def poll(self) -> None:
@@ -396,12 +509,14 @@ class App:
                     self.line_var.set(best["line"])
                     self.alt_var.set("   ".join(f"{i}) {m['san']} ({m['eval']})"
                                                 for i, m in enumerate(d["moves"][1:], start=2)))
-                    self.bar.config(value=d["win"])
+                    self._set_bar(d["win"])
                     self.bar_var.set(f"White {d['win']:.0f}%  |  Black {100 - d['win']:.0f}%")
                     self.status_var.set("Best move shown on the board.")
                     self.overlay.show_moves([m["uci"] for m in d["moves"]], d["flipped"])
                 elif kind == "status":
                     self.status_var.set(rest[0])
+                    bad = any(w in rest[0] for w in ("Can't", "illegal", "Hiccup", "stopped unexpectedly"))
+                    self.status_lbl.config(foreground=WARN if bad else ACCENT)
                     if rest[0] != "Thinking...":
                         self.overlay.clear()
                         self._reset_display()

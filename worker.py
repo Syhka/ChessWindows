@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from pathlib import Path
 
 import chess
@@ -12,12 +13,13 @@ import numpy as np
 
 from chessvision import BoardRecognizer
 from common import log
-from engines import EngineStartError, candidate_engines, close_engine, open_engine, set_skill
-from logic import build_board, format_score, white_win_percent
+from engines import EngineStartError, candidate_engines, close_engine, kill_engine, open_engine, set_skill
+from logic import build_board, engine_safe, format_score, white_win_percent
 
 POLL_SECONDS = 0.25
 MAX_CONSECUTIVE_ERRORS = 10
-MAX_ENGINE_RESTARTS = 5
+MAX_ENGINE_RESTARTS = 8
+WATCHDOG_EXTRA = 8.0   # seconds beyond the think time before a silent engine is declared hung
 
 
 class Worker(threading.Thread):
@@ -65,6 +67,7 @@ class Worker(threading.Thread):
                 self.q.put(("error", f"Could not start Stockfish:\n{e}"))
                 return
             self.q.put(("engine", Path(path).name))
+            started = time.monotonic()
             try:
                 self._loop(engine)
                 return
@@ -73,7 +76,11 @@ class Worker(threading.Thread):
                 crashes[path] = crashes.get(path, 0) + 1
                 if crashes[path] >= 2:
                     skip.add(path)
+                if time.monotonic() - started > 120:   # it ran fine for a while: not a crash loop
+                    restarts = 0
                 restarts += 1
+                self._reset_state()
+                self._halt.wait(min(2.0, 0.3 * restarts))   # brief back-off so we never spin
                 if restarts > MAX_ENGINE_RESTARTS:
                     self.q.put(("error", "Stockfish keeps crashing.\nTry 'Choose Stockfish .exe...' with a "
                                          "different build, and check your antivirus."))
@@ -128,6 +135,14 @@ class Worker(threading.Thread):
             return
         self.accepted = (pieces, sig)
 
+        # One or two squares we could not read (arrow overlay, animation, ...)? If we know the previous
+        # position, assume those squares did not change and let build_board() reconcile the rest.
+        if unknown and self.prev_board is not None and unknown <= 2:
+            for f, r in self.rec.last_unknown:
+                prev_piece = self.prev_board.piece_at(chess.square(f, r))
+                if prev_piece is not None:
+                    pieces[(f, r)] = prev_piece.symbol()
+            unknown = 0
         values = list(pieces.values())
         if unknown or values.count("K") != 1 or values.count("k") != 1:
             self.q.put(("status", "Can't read the board (is it fully visible and not covered?)", flipped))
@@ -135,7 +150,7 @@ class Worker(threading.Thread):
 
         my_color = chess.BLACK if flipped else chess.WHITE
         board = build_board(pieces, self.prev_board, my_color)
-        if not board.is_valid():
+        if not engine_safe(board):
             self.prev_board = None
             self.q.put(("status", "Position looks illegal - probably misread. Recalibrate if it persists.", flipped))
             return
@@ -156,7 +171,14 @@ class Worker(threading.Thread):
 
         self.q.put(("status", "Thinking...", flipped))
         n = max(1, min(int(self.s["lines"]), board.legal_moves.count()))
-        result = engine.analyse(board, chess.engine.Limit(time=float(self.s["time"])), multipv=n)
+        think = float(self.s["time"])
+        watchdog = threading.Timer(think + WATCHDOG_EXTRA, kill_engine, args=(engine,))
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            result = engine.analyse(board, chess.engine.Limit(time=think), multipv=n)
+        finally:
+            watchdog.cancel()
         infos = result if isinstance(result, list) else [result]
 
         moves = []

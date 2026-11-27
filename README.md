@@ -15,6 +15,13 @@ or online games where engine assistance is forbidden.
 
 Extras: top 1-3 moves as coloured arrows, eval bar, *Copy FEN* for any analysis board, adjustable strength/think time.
 
+## What changed in this version
+- **Crash fixes:** engine runs with conservative threads/hash, a watchdog kills a hung engine, crashed engines restart
+  automatically (fast build -> compatible build), and positions Stockfish can choke on (e.g. adjacent kings) are never sent to it.
+- **Better board reading:** the board edges are found automatically inside your selection (no pixel-exact drag needed),
+  piece matching tolerates small misalignment, and one or two unreadable squares are filled in from the game so far.
+- **New dark UI** and an app icon (`assets/icon.ico`, regenerate with `python assets/make_icon.py`).
+
 ## Troubleshooting
 Click **Open log folder**. `app.log` has the details, `crash.log` captures hard crashes, `selftest.txt` the engine check.
 You can run `ChessScreenAssistant.exe --selftest` to test every bundled engine.
